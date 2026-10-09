@@ -1,24 +1,17 @@
 import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
 import { Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import * as Notifications from 'expo-notifications';
 import { NewTask, Priority, Task } from '../types';
 import { addDays, daysBetween } from '../utils/date';
+import { getNotifications } from '../utils/notify';
 
 const KEY = 'taskmate.tasks.v1';
-
-Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldShowBanner: true,
-    shouldShowList: true,
-    shouldPlaySound: true,
-    shouldSetBadge: false,
-  }),
-});
 
 /** Jadwalkan local notification: H-1 jam 08:00. Jika sudah lewat & soon=true -> muncul 5 detik lagi (untuk demo). */
 async function schedule(t: Task, soon: boolean): Promise<string | undefined> {
   try {
+    const Notifications = getNotifications();
+    if (!Notifications) return;
     if (t.status === 'Selesai') return;
     const dl = new Date(t.deadline);
     const now = Date.now();
@@ -48,7 +41,10 @@ async function schedule(t: Task, soon: boolean): Promise<string | undefined> {
     return undefined; // notifikasi gagal -> aplikasi tetap jalan (reminder in-app tetap ada)
   }
 }
-const cancel = (id?: string) => (id ? Notifications.cancelScheduledNotificationAsync(id).catch(() => {}) : Promise.resolve());
+const cancel = (id?: string) => {
+  const N = getNotifications();
+  return id && N ? N.cancelScheduledNotificationAsync(id).catch(() => {}) : Promise.resolve();
+};
 
 const mk = (i: number, title: string, course: string, days: number, priority: Priority, progress: number): Task => ({
   id: `seed${i}`, title, course, deadline: addDays(days).toISOString(), priority,
@@ -138,7 +134,7 @@ export function TaskProvider({ children }: { children: React.ReactNode }) {
       commit(ref.current.filter((t) => t.id !== id));
     },
     resetDemo: () => {
-      Notifications.cancelAllScheduledNotificationsAsync().catch(() => {});
+      getNotifications()?.cancelAllScheduledNotificationsAsync().catch(() => {});
       commit(seed());
     },
   };
