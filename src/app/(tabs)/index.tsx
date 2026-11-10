@@ -1,73 +1,89 @@
 import React from 'react';
-import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
+import { Text, View } from 'react-native';
 import { useRouter } from 'expo-router';
-import { Ionicons } from '@expo/vector-icons';
-import { Empty, Fab, H1, ProgressBar, Screen, SectionTitle, card } from '../../components/ui';
-import TaskCard from '../../components/TaskCard';
+import { Btn, Card, Empty, Fab, Icon, IconName, Page, PageHeader, ProgressBar, SectionTitle } from '../../components/ui';
+import { TaskList } from '../../components/TaskViews';
+import { useLayout } from '../../hooks/useLayout';
 import { useTasks } from '../../store/TaskContext';
-import { C, USER } from '../../theme';
-import { daysLeft } from '../../utils/date';
+import { R, T, USER, useTheme } from '../../theme';
+import { cmpDeadline, daysLeft } from '../../utils/date';
 
-export default function Home() {
-  const { tasks, loading } = useTasks();
-  const router = useRouter();
-  if (loading) return <View style={{ flex: 1, justifyContent: 'center' }}><ActivityIndicator size="large" color={C.primary} /></View>;
-
-  const n = (st: string) => tasks.filter((t) => t.status === st).length;
-  const stats = [
-    { label: 'Total Tugas', v: tasks.length, icon: 'layers', color: C.primary },
-    { label: 'Belum Selesai', v: tasks.length - n('Selesai'), icon: 'time', color: '#D97706' },
-    { label: 'Sedang Dikerjakan', v: n('Sedang Dikerjakan'), icon: 'flash', color: '#2563EB' },
-    { label: 'Selesai', v: n('Selesai'), icon: 'checkmark-circle', color: C.ok },
-  ] as const;
-
-  const upcoming = tasks.filter((t) => t.status !== 'Selesai')
-    .sort((a, b) => +new Date(a.deadline) - +new Date(b.deadline)).slice(0, 3);
-
-  const week = tasks.filter((t) => { const d = daysLeft(t.deadline); return d >= -7 && d <= 7; });
-  const pct = week.length ? Math.round(week.reduce((a, t) => a + t.progress, 0) / week.length) : 0;
-  const doneWeek = week.filter((t) => t.status === 'Selesai').length;
-
+function Stat({ icon, label, value, tint, bg }: { icon: IconName; label: string; value: number; tint: string; bg: string }) {
+  const { c } = useTheme();
+  const { isDesktop } = useLayout();
   return (
-    <View style={{ flex: 1 }}>
-      <Screen>
-        <H1>Halo, {USER.name} 👋</H1>
-        <Text style={s.sub}>Yuk, selesaikan tugasmu hari ini.</Text>
-
-        <View style={s.grid}>
-          {stats.map((x) => (
-            <View key={x.label} style={s.stat}>
-              <Ionicons name={x.icon} size={22} color={x.color} />
-              <Text style={s.statV}>{x.v}</Text>
-              <Text style={s.statL}>{x.label}</Text>
-            </View>
-          ))}
-        </View>
-
-        <SectionTitle>Deadline Terdekat</SectionTitle>
-        {upcoming.length === 0
-          ? <Empty icon="happy-outline" title="Tidak ada tugas aktif" text="Tekan tombol + untuk menambahkan tugas baru." />
-          : upcoming.map((t) => <TaskCard key={t.id} task={t} />)}
-
-        <SectionTitle>Progress Minggu Ini</SectionTitle>
-        <View style={s.hero}>
-          <Text style={s.heroPct}>{pct}%</Text>
-          <Text style={s.heroSub}>{doneWeek} dari {week.length} tugas selesai</Text>
-          <View style={{ marginTop: 14 }}><ProgressBar value={pct} color="#fff" track="rgba(255,255,255,0.3)" /></View>
-        </View>
-      </Screen>
-      <Fab onPress={() => router.push('/task/form')} />
-    </View>
+    <Card style={{ flexGrow: 1, flexBasis: isDesktop ? '22%' : '46%' }} pad={14}>
+      <View style={{ width: 36, height: 36, borderRadius: R.sm, backgroundColor: bg, alignItems: 'center', justifyContent: 'center' }}>
+        <Icon name={icon} size={18} color={tint} />
+      </View>
+      <Text style={{ fontSize: 28, fontWeight: '700', color: c.text, marginTop: 10 }}>{value}</Text>
+      <Text style={[T.small, { color: c.muted }]}>{label}</Text>
+    </Card>
   );
 }
 
-const s = StyleSheet.create({
-  sub: { fontSize: 15, color: C.sub, marginTop: 4, marginBottom: 20 },
-  grid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between' },
-  stat: { ...card, width: '48%', marginBottom: 12, padding: 14 },
-  statV: { fontSize: 28, fontWeight: '800', color: C.text, marginTop: 6 },
-  statL: { fontSize: 12, color: C.sub, marginTop: 2 },
-  hero: { backgroundColor: C.primary, borderRadius: 24, padding: 20 },
-  heroPct: { fontSize: 44, fontWeight: '800', color: '#fff' },
-  heroSub: { fontSize: 14, color: 'rgba(255,255,255,0.85)' },
-});
+export default function Home() {
+  const { tasks } = useTasks();
+  const router = useRouter();
+  const { c } = useTheme();
+  const { isDesktop } = useLayout();
+  const n = (s: string) => tasks.filter((t) => t.status === s).length;
+
+  const upcoming = tasks.filter((t) => t.status !== 'Selesai' && !!t.deadline).sort(cmpDeadline).slice(0, 4);
+  const week = tasks.filter((t) => { if (!t.deadline) return false; const d = daysLeft(t.deadline); return d >= -7 && d <= 7; });
+  const pct = week.length ? Math.round(week.reduce((a, t) => a + t.progress, 0) / week.length) : 0;
+  const doneWeek = week.filter((t) => t.status === 'Selesai').length;
+
+  const courses = Object.entries(tasks.reduce<Record<string, { done: number; total: number }>>((m, t) => {
+    const x = (m[t.course] ??= { done: 0, total: 0 }); x.total++; if (t.status === 'Selesai') x.done++; return m;
+  }, {})).sort((a, b) => b[1].total - a[1].total);
+
+  const left = (
+    <View style={{ flex: isDesktop ? 3 : undefined }}>
+      <SectionTitle right={<Btn small variant="ghost" label="Lihat semua" onPress={() => router.navigate('/tasks')} />}>Deadline Terdekat</SectionTitle>
+      {upcoming.length === 0
+        ? <Card><Empty icon="check-circle" title="Tidak ada tugas aktif" text="Semua tugas sudah selesai, atau belum ada tugas yang ditambahkan." action={<Btn label="Tambah Tugas" icon="plus" onPress={() => router.push('/task/form')} />} /></Card>
+        : <TaskList tasks={upcoming} table={false} />}
+    </View>
+  );
+  const right = (
+    <View style={{ flex: isDesktop ? 2 : undefined }}>
+      <SectionTitle>Progress Minggu Ini</SectionTitle>
+      <Card>
+        <Text style={{ fontSize: 40, fontWeight: '700', color: c.text }}>{pct}%</Text>
+        <Text style={[T.small, { color: c.muted, marginBottom: 12 }]}>{doneWeek} dari {week.length} tugas minggu ini selesai</Text>
+        <ProgressBar value={pct} height={10} />
+      </Card>
+      <SectionTitle>Per Mata Kuliah</SectionTitle>
+      <Card style={{ gap: 14 }}>
+        {courses.length === 0 ? <Text style={[T.small, { color: c.muted }]}>Belum ada mata kuliah.</Text> : courses.slice(0, 5).map(([name, v]) => (
+          <View key={name}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 8, marginBottom: 6 }}>
+              <Text numberOfLines={1} style={[T.small, { color: c.text, fontWeight: '600', flex: 1 }]}>{name}</Text>
+              <Text style={[T.small, { color: c.muted }]}>{v.done}/{v.total} selesai</Text>
+            </View>
+            <ProgressBar value={Math.round((v.done / v.total) * 100)} height={6} />
+          </View>
+        ))}
+      </Card>
+    </View>
+  );
+
+  return (
+    <View style={{ flex: 1 }}>
+      <Page>
+        {!isDesktop && <Text style={[T.tiny, { color: c.primaryText, fontWeight: '700', letterSpacing: 0.4, marginBottom: 4 }]}>ONE PLACE FOR ALL YOUR COLLEGE TASKS</Text>}
+        <PageHeader title={`Halo, ${USER.name}`} subtitle="Ringkasan tugas kuliahmu hari ini."
+          action={isDesktop ? <Btn label="Tambah Tugas" icon="plus" onPress={() => router.push('/task/form')} /> : undefined} />
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 12 }}>
+          <Stat icon="layers" label="Total Tugas" value={tasks.length} tint={c.primaryText} bg={c.primarySoft} />
+          <Stat icon="circle" label="Belum Selesai" value={tasks.length - n('Selesai')} tint={c.priority.MEDIUM.fg} bg={c.priority.MEDIUM.bg} />
+          <Stat icon="clock" label="Sedang Dikerjakan" value={n('Sedang Dikerjakan')} tint={c.status['Sedang Dikerjakan'].fg} bg={c.status['Sedang Dikerjakan'].bg} />
+          <Stat icon="check-circle" label="Selesai" value={n('Selesai')} tint={c.success} bg={c.successSoft} />
+        </View>
+        <View style={{ flexDirection: isDesktop ? 'row' : 'column', gap: isDesktop ? 28 : 0 }}>{left}{right}</View>
+      </Page>
+      {!isDesktop && <Fab onPress={() => router.push('/task/form')} />}
+    </View>
+  );
+}

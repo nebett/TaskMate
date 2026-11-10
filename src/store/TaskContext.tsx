@@ -4,6 +4,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { NewTask, Priority, Task } from '../types';
 import { addDays, daysBetween } from '../utils/date';
 import { getNotifications } from '../utils/notify';
+import { useToast } from '../components/Toast';
 
 const KEY = 'taskmate.tasks.v1';
 
@@ -12,7 +13,7 @@ async function schedule(t: Task, soon: boolean): Promise<string | undefined> {
   try {
     const Notifications = getNotifications();
     if (!Notifications) return;
-    if (t.status === 'Selesai') return;
+    if (t.status === 'Selesai' || !t.deadline) return;
     const dl = new Date(t.deadline);
     const now = Date.now();
     if (dl.getTime() < now) return;
@@ -34,7 +35,7 @@ async function schedule(t: Task, soon: boolean): Promise<string | undefined> {
     const n = daysBetween(when, dl);
     const txt = n <= 0 ? 'hari ini' : n === 1 ? 'besok' : `${n} hari lagi`;
     return await Notifications.scheduleNotificationAsync({
-      content: { title: 'TaskMate Reminder 🔔', body: `${t.title} ${t.course} deadline ${txt}.` },
+      content: { title: 'TaskMate Reminder', body: `${t.title} ${t.course} deadline ${txt}.` },
       trigger: { type: Notifications.SchedulableTriggerInputTypes.DATE, date: when, channelId: 'default' },
     });
   } catch {
@@ -60,82 +61,109 @@ const seed = (): Task[] => [
 interface Store {
   tasks: Task[];
   loading: boolean;
-  addTask: (d: NewTask) => void;
-  updateTask: (id: string, p: Partial<NewTask>) => void;
-  setProgress: (id: string, p: number) => void;
-  markDone: (id: string) => void;
-  deleteTask: (id: string) => void;
-  resetDemo: () => void;
+  addTask: (d: NewTask) => Promise<boolean>;
+  updateTask: (id: string, p: Partial<NewTask>) => Promise<boolean>;
+  setProgress: (id: string, p: number) => Promise<boolean>;
+  markDone: (id: string) => Promise<boolean>;
+  deleteTask: (id: string) => Promise<boolean>;
+  resetDemo: () => Promise<boolean>;
 }
 const Ctx = createContext<Store>(null as unknown as Store);
 export const useTasks = () => useContext(Ctx);
 
 export function TaskProvider({ children }: { children: React.ReactNode }) {
+  const toast = useToast();
   const [tasks, setTasks] = useState<Task[]>([]);
   const [loading, setLoading] = useState(true);
   const ref = useRef<Task[]>([]);
-  const commit = (next: Task[]) => { ref.current = next; setTasks(next); };
+
+  /** Simpan ke penyimpanan lokal; beri tahu pengguna jika gagal. */
+  const commit = async (next: Task[]): Promise<boolean> => {
+    ref.current = next;
+    setTasks(next);
+    try {
+      await AsyncStorage.setItem(KEY, JSON.stringify(next));
+      return true;
+    } catch {
+      toast.show('Data tidak dapat disimpan di perangkat ini. Periksa ruang penyimpanan atau izin browser, lalu coba lagi.', 'error');
+      return false;
+    }
+  };
 
   useEffect(() => {
     (async () => {
       try {
         const raw = await AsyncStorage.getItem(KEY);
-        commit(raw ? JSON.parse(raw) : seed());
-      } catch { commit(seed()); }
+        const data = raw ? (JSON.parse(raw) as Task[]) : seed();
+        ref.current = data;
+        setTasks(data);
+        if (!raw) await AsyncStorage.setItem(KEY, JSON.stringify(data));
+      } catch {
+        const data = seed();
+        ref.current = data;
+        setTasks(data);
+        toast.show('Data tersimpan tidak dapat dibaca. Menampilkan data contoh.', 'error');
+      }
       setLoading(false);
     })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  useEffect(() => {
-    if (!loading) AsyncStorage.setItem(KEY, JSON.stringify(tasks)).catch(() => {});
-  }, [tasks, loading]);
 
   const resched = async (id: string, oldNotif: string | undefined, soon: boolean) => {
     await cancel(oldNotif);
     const t = ref.current.find((x) => x.id === id);
     if (!t) return;
     const notifId = await schedule(t, soon);
-    commit(ref.current.map((x) => (x.id === id ? { ...x, notifId } : x)));
+    if (notifId !== t.notifId) await commit(ref.current.map((x) => (x.id === id ? { ...x, notifId } : x)));
   };
 
-  const addTask: Store['addTask'] = (d) => {
+  const addTask: Store['addTask'] = async (d) => {
     const progress = d.status === 'Selesai' ? 100 : d.status === 'Sedang Dikerjakan' ? 25 : 0;
     const t: Task = { ...d, id: Date.now().toString(), createdAt: new Date().toISOString(), progress };
-    commit([t, ...ref.current]);
-    resched(t.id, undefined, true);
+    const ok = await commit([t, ...ref.current]);
+    if (ok) { toast.show(`Tugas "${t.title}" berhasil ditambahkan.`); resched(t.id, undefined, true); }
+    return ok;
   };
 
-  const updateTask: Store['updateTask'] = (id, patch) => {
+  const updateTask: Store['updateTask'] = async (id, patch) => {
     const old = ref.current.find((t) => t.id === id);
-    if (!old) return;
+    if (!old) return false;
     const m: Task = { ...old, ...patch };
     if (patch.status) {
-      m.progress = patch.status === 'Selesai' ? 100 : patch.status === 'Belum Mulai' ? 0
-        : old.progress >= 100 ? 50 : old.progress || 25;
+      m.progress = patch.status === 'Selesai' ? 100 : patch.status === 'Belum Mulai' ? 0 : old.progress >= 100 ? 50 : old.progress || 25;
     }
-    commit(ref.current.map((t) => (t.id === id ? m : t)));
-    resched(id, old.notifId, !!patch.deadline && patch.deadline !== old.deadline);
+    const ok = await commit(ref.current.map((t) => (t.id === id ? m : t)));
+    if (ok) { toast.show(`Perubahan pada "${m.title}" berhasil disimpan.`); resched(id, old.notifId, patch.deadline !== undefined && patch.deadline !== old.deadline); }
+    return ok;
   };
 
-  const setProgress: Store['setProgress'] = (id, p) => {
+  const setProgress: Store['setProgress'] = async (id, p) => {
     const old = ref.current.find((t) => t.id === id);
-    if (!old) return;
+    if (!old) return false;
     const status = p >= 100 ? 'Selesai' : p <= 0 ? 'Belum Mulai' : 'Sedang Dikerjakan';
-    commit(ref.current.map((t) => (t.id === id ? { ...t, progress: p, status } : t)));
-    if ((old.status === 'Selesai') !== (status === 'Selesai')) resched(id, old.notifId, false);
+    const ok = await commit(ref.current.map((t) => (t.id === id ? { ...t, progress: p, status } : t)));
+    if (ok) {
+      toast.show(p >= 100 ? `Tugas "${old.title}" ditandai selesai.` : `Progress "${old.title}" diperbarui menjadi ${p}%.`);
+      if ((old.status === 'Selesai') !== (status === 'Selesai')) resched(id, old.notifId, false);
+    }
+    return ok;
   };
 
   const store: Store = {
     tasks, loading, addTask, updateTask, setProgress,
     markDone: (id) => setProgress(id, 100),
-    deleteTask: (id) => {
+    deleteTask: async (id) => {
       const old = ref.current.find((t) => t.id === id);
       cancel(old?.notifId);
-      commit(ref.current.filter((t) => t.id !== id));
+      const ok = await commit(ref.current.filter((t) => t.id !== id));
+      if (ok && old) toast.show(`Tugas "${old.title}" telah dihapus.`);
+      return ok;
     },
-    resetDemo: () => {
+    resetDemo: async () => {
       getNotifications()?.cancelAllScheduledNotificationsAsync().catch(() => {});
-      commit(seed());
+      const ok = await commit(seed());
+      if (ok) toast.show('Data contoh berhasil dipulihkan.');
+      return ok;
     },
   };
   return <Ctx.Provider value={store}>{children}</Ctx.Provider>;

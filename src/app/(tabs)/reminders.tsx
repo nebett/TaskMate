@@ -1,63 +1,72 @@
 import React from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, Text, View } from 'react-native';
 import { useRouter } from 'expo-router';
-import { Ionicons } from '@expo/vector-icons';
-import { Empty, H1, Screen, SectionTitle, card } from '../../components/ui';
+import { Card, Empty, Icon, Page, PageHeader, SectionTitle, useFocusRing } from '../../components/ui';
+import { useLayout } from '../../hooks/useLayout';
 import { useTasks } from '../../store/TaskContext';
-import { C } from '../../theme';
-import { daysLeft } from '../../utils/date';
+import { R, T, useTheme } from '../../theme';
+import { Task } from '../../types';
+import { chunk } from '../../utils/chunk';
+import { DeadlineInfo, cmpDeadline, deadlineInfo, fmtShort, fmtTime } from '../../utils/date';
 
-export default function Reminders() {
-  const { tasks } = useTasks();
+const head = (i: DeadlineInfo) => (i.kind === 'overdue' ? 'Deadline terlewat' : i.kind === 'today' ? 'Deadline hari ini' : i.days === 1 ? 'Deadline besok' : `Deadline ${i.days} hari lagi`);
+const msg = (t: Task, i: DeadlineInfo) => {
+  const at = t.deadline ? `${fmtShort(t.deadline)} pukul ${fmtTime(t.deadline)}` : '';
+  return i.kind === 'overdue' ? `${i.text}. Segera selesaikan tugas ini.` : i.kind === 'today' ? `Deadline hari ini pukul ${t.deadline ? fmtTime(t.deadline) : ''}.` : i.days === 1 ? `Deadline besok pukul ${t.deadline ? fmtTime(t.deadline) : ''}.` : `Deadline ${at}.`;
+};
+
+function Item({ t, info }: { t: Task; info: DeadlineInfo }) {
+  const { c } = useTheme();
   const router = useRouter();
-  const active = tasks.filter((t) => t.status !== 'Selesai')
-    .sort((a, b) => +new Date(a.deadline) - +new Date(b.deadline))
-    .map((t) => ({ t, d: daysLeft(t.deadline) }));
-
-  const groups = [
-    { title: 'TERLAMBAT', items: active.filter((x) => x.d < 0) },
-    { title: 'TODAY', items: active.filter((x) => x.d === 0) },
-    { title: 'TOMORROW', items: active.filter((x) => x.d === 1) },
-    { title: 'THIS WEEK', items: active.filter((x) => x.d >= 2 && x.d <= 7) },
-  ].filter((g) => g.items.length > 0);
-
-  const head = (d: number) => d < 0 ? 'Deadline Terlewat' : d === 0 ? 'Deadline Hari Ini' : d === 1 ? 'Deadline Besok' : `Deadline ${d} Hari Lagi`;
-  const msg = (d: number) => d < 0 ? `Terlambat ${-d} hari.` : d === 0 ? 'Deadline hari ini.' : d === 1 ? 'Deadline besok.' : `Deadline ${d} hari lagi.`;
-
+  const f = useFocusRing();
+  const hot = info.kind === 'overdue' || info.kind === 'today' || info.days <= 1;
   return (
-    <Screen>
-      <H1>Reminder</H1>
-      {groups.length === 0 && <Empty icon="notifications-off-outline" title="Tidak ada reminder" text="Semua tugas aman. Tambahkan tugas dengan deadline untuk mendapat pengingat." />}
-      {groups.map((g) => (
-        <View key={g.title}>
-          <SectionTitle>{g.title}</SectionTitle>
-          {g.items.map(({ t, d }) => {
-            const hot = d <= 1;
-            return (
-              <Pressable key={t.id} onPress={() => router.push(`/task/${t.id}`)} style={[card, s.item]}>
-                <View style={[s.icon, { backgroundColor: hot ? '#FEE2E2' : C.primarySoft }]}>
-                  <Ionicons name={hot ? 'warning' : 'notifications'} size={20} color={hot ? C.danger : C.primary} />
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={[s.head, hot && { color: C.danger }]}>{head(d)}</Text>
-                  <Text style={s.title}>{t.title}</Text>
-                  <Text style={s.sub}>{t.course}</Text>
-                  <Text style={s.msg}>"{msg(d)}"</Text>
-                </View>
-              </Pressable>
-            );
-          })}
-        </View>
-      ))}
-    </Screen>
+    <Pressable accessibilityRole="button" accessibilityLabel={`${head(info)}: ${t.title}, ${t.course}`} onPress={() => router.push(`/task/${t.id}`)} {...f.handlers}
+      style={(s: any) => [{ flex: 1, flexDirection: 'row', gap: 12, padding: 14, borderRadius: R.lg, borderWidth: 1, borderColor: c.border, backgroundColor: s.hovered ? c.surfaceAlt : c.surface }, f.ring]}>
+      <View style={{ width: 40, height: 40, borderRadius: R.md, alignItems: 'center', justifyContent: 'center', backgroundColor: hot ? c.dangerSoft : c.primarySoft }}>
+        <Icon name={hot ? 'alert-triangle' : 'bell'} size={19} color={hot ? c.danger : c.primaryText} />
+      </View>
+      <View style={{ flex: 1 }}>
+        <Text style={[T.small, { fontWeight: '700', color: hot ? c.danger : c.primaryText }]}>{head(info)}</Text>
+        <Text numberOfLines={1} style={[T.body, { fontWeight: '600', color: c.text }]}>{t.title}</Text>
+        <Text numberOfLines={1} style={[T.small, { color: c.muted }]}>{t.course}</Text>
+        <Text style={[T.small, { color: c.text, marginTop: 4 }]}>{msg(t, info)}</Text>
+      </View>
+    </Pressable>
   );
 }
 
-const s = StyleSheet.create({
-  item: { flexDirection: 'row', marginBottom: 12 },
-  icon: { width: 42, height: 42, borderRadius: 14, alignItems: 'center', justifyContent: 'center', marginRight: 12 },
-  head: { fontSize: 12, fontWeight: '700', color: C.primary },
-  title: { fontSize: 16, fontWeight: '700', color: C.text, marginTop: 2 },
-  sub: { fontSize: 13, color: C.sub },
-  msg: { fontSize: 13, color: C.text, marginTop: 6, fontStyle: 'italic' },
-});
+export default function Reminders() {
+  const { tasks } = useTasks();
+  const { c } = useTheme();
+  const { isDesktop } = useLayout();
+  const active = tasks.filter((t) => t.status !== 'Selesai' && !!t.deadline).sort(cmpDeadline).map((t) => ({ t, info: deadlineInfo(t.deadline, false) }));
+  const groups = [
+    { title: 'Terlambat', items: active.filter((x) => x.info.kind === 'overdue') },
+    { title: 'Hari Ini', items: active.filter((x) => x.info.kind === 'today') },
+    { title: 'Besok', items: active.filter((x) => x.info.kind === 'upcoming' && x.info.days === 1) },
+    { title: 'Minggu Ini', items: active.filter((x) => x.info.kind === 'upcoming' && x.info.days >= 2 && x.info.days <= 7) },
+  ].filter((g) => g.items.length > 0);
+  const cols = isDesktop ? 2 : 1;
+
+  return (
+    <Page>
+      <PageHeader title="Reminder" subtitle="Tugas yang deadline-nya perlu kamu perhatikan." />
+      {groups.length === 0 && <Card><Empty icon="bell" title="Tidak ada pengingat" text="Semua tugas aman. Tambahkan tugas dengan deadline untuk mendapat pengingat." /></Card>}
+      {groups.map((g) => (
+        <View key={g.title}>
+          <SectionTitle>{g.title}</SectionTitle>
+          <View style={{ gap: 12 }}>
+            {chunk(g.items, cols).map((row, i) => (
+              <View key={i} style={{ flexDirection: 'row', gap: 12 }}>
+                {row.map(({ t, info }) => <Item key={t.id} t={t} info={info} />)}
+                {Array.from({ length: cols - row.length }).map((_, k) => <View key={`e${k}`} style={{ flex: 1 }} />)}
+              </View>
+            ))}
+          </View>
+        </View>
+      ))}
+      <Text style={[T.small, { color: c.muted, marginTop: 28 }]}>Pengingat ditampilkan di dalam aplikasi. Notifikasi sistem hanya aktif pada build aplikasi di Android, bukan di Expo Go atau browser.</Text>
+    </Page>
+  );
+}

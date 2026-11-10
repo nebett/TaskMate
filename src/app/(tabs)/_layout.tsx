@@ -1,30 +1,36 @@
 import React from 'react';
+import { View } from 'react-native';
 import { Tabs } from 'expo-router';
-import { Ionicons } from '@expo/vector-icons';
-import { C } from '../../theme';
-
-type Icon = keyof typeof Ionicons.glyphMap;
-const icon = (name: string) =>
-  function TabIcon({ color, focused }: { color: string; focused: boolean }) {
-    return <Ionicons name={(focused ? name : `${name}-outline`) as Icon} size={24} color={color} />;
-  };
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Feather } from '@expo/vector-icons';
+import { IconName } from '../../components/ui';
+import { NAV } from '../../components/Sidebar';
+import { useLayout } from '../../hooks/useLayout';
+import { useTheme } from '../../theme';
 
 export default function TabsLayout() {
+  const { c } = useTheme();
+  const { isDesktop } = useLayout();
+  const { bottom } = useSafeAreaInsets();
+  const icon = (name: IconName) =>
+    function TabIcon({ color, focused }: { color: string | import('react-native').ColorValue; focused: boolean }) {
+      return (
+        <View style={{ width: 58, height: 30, borderRadius: 15, alignItems: 'center', justifyContent: 'center', backgroundColor: focused ? c.primarySoft : 'transparent' }}>
+          <Feather name={name} size={21} color={color as string} />
+        </View>
+      );
+    };
+  const names = ['index', 'tasks', 'calendar', 'reminders', 'profile'];
   return (
-    <Tabs
-      screenOptions={{
-        headerShown: false,
-        tabBarActiveTintColor: C.primary,
-        tabBarInactiveTintColor: '#9CA3AF',
-        tabBarLabelStyle: { fontSize: 11, fontWeight: '600' },
-        tabBarStyle: { borderTopColor: C.border, paddingTop: 4 },
-      }}
-    >
-      <Tabs.Screen name="index" options={{ title: 'Home', tabBarIcon: icon('home') }} />
-      <Tabs.Screen name="tasks" options={{ title: 'Tugas', tabBarIcon: icon('checkbox') }} />
-      <Tabs.Screen name="calendar" options={{ title: 'Kalender', tabBarIcon: icon('calendar') }} />
-      <Tabs.Screen name="reminders" options={{ title: 'Reminder', tabBarIcon: icon('notifications') }} />
-      <Tabs.Screen name="profile" options={{ title: 'Profil', tabBarIcon: icon('person') }} />
+    <Tabs screenOptions={{
+      headerShown: false, sceneStyle: { backgroundColor: c.bg },
+      tabBarActiveTintColor: c.primaryText, tabBarInactiveTintColor: c.muted,
+      tabBarLabelStyle: { fontSize: 12, fontWeight: '600' },
+      tabBarStyle: isDesktop ? { display: 'none' } : { backgroundColor: c.surface, borderTopColor: c.border, paddingTop: 8, paddingBottom: bottom || 8, height: 66 + bottom },
+    }}>
+      {NAV.map((n, i) => (
+        <Tabs.Screen key={n.href} name={names[i]} options={{ title: n.label, tabBarIcon: icon(n.icon), tabBarAccessibilityLabel: n.label }} />
+      ))}
     </Tabs>
   );
 }

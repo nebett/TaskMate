@@ -1,96 +1,75 @@
 import React, { useState } from 'react';
-import { Alert, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, ToastAndroid, View } from 'react-native';
+import { Text, View } from 'react-native';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
-import DateTimePicker from '@react-native-community/datetimepicker';
-import { Ionicons } from '@expo/vector-icons';
-import { Chip, Seg } from '../../components/ui';
+import { DeadlineField } from '../../components/DeadlinePicker';
+import { Btn, Chip, ChipRow, Field, Page, Seg, TextField } from '../../components/ui';
 import { useTasks } from '../../store/TaskContext';
-import { C, COURSES, PRIORITY } from '../../theme';
-import { addDays, fmtDate } from '../../utils/date';
+import { COURSES, T, useTheme } from '../../theme';
 import { Priority, Status } from '../../types';
-
-const QUICK = [['Hari ini', 0], ['Besok', 1], ['3 hari', 3], ['1 minggu', 7]] as const;
+import { presetDate } from '../../utils/date';
 
 export default function TaskForm() {
   const { id } = useLocalSearchParams<{ id?: string }>();
   const { tasks, addTask, updateTask } = useTasks();
+  const { c } = useTheme();
   const router = useRouter();
   const editing = tasks.find((t) => t.id === id);
 
   const [title, setTitle] = useState(editing?.title ?? '');
   const [course, setCourse] = useState(editing?.course ?? '');
-  const [date, setDate] = useState<Date>(editing ? new Date(editing.deadline) : addDays(1));
+  const [deadline, setDeadline] = useState<Date | null>(editing ? (editing.deadline ? new Date(editing.deadline) : null) : presetDate(1));
   const [priority, setPriority] = useState<Priority>(editing?.priority ?? 'MEDIUM');
   const [status, setStatus] = useState<Status>(editing?.status ?? 'Belum Mulai');
   const [notes, setNotes] = useState(editing?.notes ?? '');
-  const [showPicker, setShowPicker] = useState(false);
+  const [errors, setErrors] = useState<{ title?: string; course?: string }>({});
+  const [saving, setSaving] = useState(false);
 
-  const save = () => {
-    if (!title.trim() || !course.trim()) {
-      Alert.alert('Lengkapi data', 'Nama tugas dan mata kuliah wajib diisi.');
-      return;
-    }
-    const d = new Date(date); d.setHours(23, 59, 0, 0);
-    const data = { title: title.trim(), course: course.trim(), deadline: d.toISOString(), priority, status, notes: notes.trim() };
-    if (editing) updateTask(editing.id, data); else addTask(data);
-    if (Platform.OS === 'android') ToastAndroid.show('Tugas disimpan ✅', ToastAndroid.SHORT);
-    router.back();
+  const courses = [...new Set([...COURSES, ...tasks.map((t) => t.course)])];
+  const back = () => (router.canGoBack() ? router.back() : router.replace('/tasks'));
+
+  const save = async () => {
+    const e: typeof errors = {};
+    if (!title.trim()) e.title = 'Nama tugas belum diisi. Ketik nama tugas, misalnya "Laporan Praktikum".';
+    if (!course.trim()) e.course = 'Mata kuliah belum diisi. Ketik nama mata kuliah atau pilih salah satu dari daftar di bawah.';
+    setErrors(e);
+    if (e.title || e.course) return;
+    setSaving(true);
+    const data = { title: title.trim(), course: course.trim(), deadline: deadline ? deadline.toISOString() : null, priority, status, notes: notes.trim() };
+    const ok = editing ? await updateTask(editing.id, data) : await addTask(data);
+    setSaving(false);
+    if (ok) back();
   };
 
   return (
-    <ScrollView contentContainerStyle={{ padding: 20, paddingBottom: 40 }} keyboardShouldPersistTaps="handled">
+    <Page inset={false} maxWidth={640}>
       <Stack.Screen options={{ title: editing ? 'Edit Tugas' : 'Tambah Tugas' }} />
+      <TextField label="Nama Tugas" value={title} onChangeText={(v) => { setTitle(v); if (errors.title) setErrors({ ...errors, title: undefined }); }}
+        placeholder="Contoh: Laporan Praktikum" error={errors.title} returnKeyType="next" />
 
-      <Text style={s.label}>Nama Tugas</Text>
-      <TextInput style={s.input} value={title} onChangeText={setTitle} placeholder="Contoh: Laporan Praktikum" placeholderTextColor="#9CA3AF" />
+      <TextField label="Mata Kuliah" value={course} onChangeText={(v) => { setCourse(v); if (errors.course) setErrors({ ...errors, course: undefined }); }}
+        placeholder="Ketik atau pilih di bawah" error={errors.course} />
+      <View style={{ marginTop: 10 }}>
+        <ChipRow>{courses.map((name) => <Chip key={name} label={name} selected={course === name} onPress={() => { setCourse(name); setErrors({ ...errors, course: undefined }); }} />)}</ChipRow>
+      </View>
 
-      <Text style={s.label}>Mata Kuliah</Text>
-      <TextInput style={s.input} value={course} onChangeText={setCourse} placeholder="Ketik atau pilih di bawah" placeholderTextColor="#9CA3AF" />
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: 10, flexGrow: 0 }}>
-        {COURSES.map((c) => <Chip key={c} label={c} active={course === c} onPress={() => setCourse(c)} />)}
-      </ScrollView>
+      <DeadlineField value={deadline} onChange={setDeadline} />
 
-      <Text style={s.label}>Deadline</Text>
-      <Pressable style={[s.input, s.dateRow]} onPress={() => setShowPicker(true)}>
-        <Ionicons name="calendar-outline" size={20} color={C.primary} />
-        <Text style={s.dateT}>{fmtDate(date)}</Text>
-      </Pressable>
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: 10, flexGrow: 0 }}>
-        {QUICK.map(([l, n]) => <Chip key={l} label={l} onPress={() => setDate(addDays(n))} />)}
-      </ScrollView>
-      {showPicker && (
-        <DateTimePicker value={date} mode="date" onChange={(_, d) => { setShowPicker(false); if (d) setDate(d); }} />
-      )}
+      <Field label="Prioritas">
+        <Seg<Priority> label="Prioritas" value={priority} onChange={setPriority}
+          options={[{ v: 'LOW', label: 'Rendah' }, { v: 'MEDIUM', label: 'Sedang' }, { v: 'HIGH', label: 'Tinggi' }]} />
+      </Field>
+      <Field label="Status">
+        <Seg<Status> label="Status" value={status} onChange={setStatus}
+          options={[{ v: 'Belum Mulai', label: 'Belum Mulai' }, { v: 'Sedang Dikerjakan', label: 'Dikerjakan' }, { v: 'Selesai', label: 'Selesai' }]} />
+      </Field>
 
-      <Text style={s.label}>Prioritas</Text>
-      <Seg<Priority>
-        value={priority} onChange={setPriority}
-        options={(['LOW', 'MEDIUM', 'HIGH'] as Priority[]).map((v) => ({ v, label: v }))}
-        colors={{ LOW: PRIORITY.LOW.color, MEDIUM: PRIORITY.MEDIUM.color, HIGH: PRIORITY.HIGH.color }}
-      />
+      <TextField label="Catatan" value={notes} onChangeText={setNotes} multiline placeholder="Opsional" hint="Tambahkan detail seperti format pengumpulan atau tautan materi." />
 
-      <Text style={s.label}>Status</Text>
-      <Seg<Status>
-        value={status} onChange={setStatus}
-        options={[{ v: 'Belum Mulai', label: 'Belum Mulai' }, { v: 'Sedang Dikerjakan', label: 'Dikerjakan' }, { v: 'Selesai', label: 'Selesai' }]}
-      />
-
-      <Text style={s.label}>Catatan</Text>
-      <TextInput style={[s.input, { height: 100, textAlignVertical: 'top' }]} value={notes} onChangeText={setNotes}
-        placeholder="Opsional" placeholderTextColor="#9CA3AF" multiline />
-
-      <Pressable style={({ pressed }) => [s.btn, pressed && { opacity: 0.9 }]} onPress={save}>
-        <Text style={s.btnT}>Simpan Tugas</Text>
-      </Pressable>
-    </ScrollView>
+      <View style={{ flexDirection: 'row', gap: 12, marginTop: 32 }}>
+        <View style={{ flex: 1 }}><Btn variant="secondary" label="Batal" onPress={back} disabled={saving} /></View>
+        <View style={{ flex: 2 }}><Btn label={saving ? 'Menyimpan...' : 'Simpan Tugas'} icon="check" onPress={save} loading={saving} /></View>
+      </View>
+      <Text style={[T.small, { color: c.muted, marginTop: 12 }]}>Data disimpan di perangkat ini.</Text>
+    </Page>
   );
 }
-
-const s = StyleSheet.create({
-  label: { fontSize: 14, fontWeight: '700', color: C.text, marginTop: 20, marginBottom: 8 },
-  input: { backgroundColor: '#fff', borderRadius: 14, borderWidth: 1, borderColor: C.border, paddingHorizontal: 14, paddingVertical: 13, fontSize: 15, color: C.text },
-  dateRow: { flexDirection: 'row', alignItems: 'center' },
-  dateT: { marginLeft: 10, fontSize: 15, color: C.text, fontWeight: '600' },
-  btn: { backgroundColor: C.primary, borderRadius: 16, paddingVertical: 16, alignItems: 'center', marginTop: 32 },
-  btnT: { color: '#fff', fontSize: 16, fontWeight: '800' },
-});

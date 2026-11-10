@@ -5,7 +5,7 @@ export interface Task {
   id: string;
   title: string;
   course: string;
-  deadline: string; // ISO string
+  deadline: string | null; // ISO string, null = tanpa deadline
   priority: Priority;
   status: Status;
   progress: number; // 0..100
