@@ -26,8 +26,8 @@ export default function Tasks() {
   const [filter, setFilter] = useState<StatusFilter>('ALL');
   const [course, setCourse] = useState<string>('ALL');
   const [sort, setSort] = useState<Sort>('deadline');
-  const [view, setView] = usePersistedState<'grid' | 'list'>('taskmate.view', 'list');
-  const [group, setGroup] = usePersistedState<boolean>('taskmate.group', false);
+  const [view, setView, viewReady] = usePersistedState<'grid' | 'list'>('taskmate.view', 'list');
+  const [group, setGroup, groupReady] = usePersistedState<boolean>('taskmate.group', false);
 
   const courses = useMemo(() => [...new Set(tasks.map((t) => t.course))].sort(), [tasks]);
   const data = useMemo(() => tasks
@@ -67,7 +67,7 @@ export default function Tasks() {
           </ChipRow>
         </View>
         <View style={{ marginTop: 16 }}>
-          {data.length === 0 ? (
+          {!(viewReady && groupReady) ? null : data.length === 0 ? (
             <Empty icon="inbox" title={tasks.length === 0 ? 'Belum ada tugas' : 'Tidak ada tugas yang cocok'}
               text={tasks.length === 0 ? 'Tambahkan tugas pertamamu untuk mulai mengatur deadline.' : 'Ubah filter status atau mata kuliah untuk melihat tugas lain.'}
               action={tasks.length === 0 ? <Btn label="Tambah Tugas" icon="plus" onPress={() => router.push('/task/form')} /> : <Btn variant="secondary" label="Reset filter" onPress={() => { setFilter('ALL'); setCourse('ALL'); }} />} />

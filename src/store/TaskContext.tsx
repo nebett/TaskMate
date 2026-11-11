@@ -47,6 +47,33 @@ const cancel = (id?: string) => {
   return id && N ? N.cancelScheduledNotificationAsync(id).catch(() => {}) : Promise.resolve();
 };
 
+const PRIORITIES = ['LOW', 'MEDIUM', 'HIGH'];
+const STATUSES = ['Belum Mulai', 'Sedang Dikerjakan', 'Selesai'];
+const isoOrNull = (v: unknown) => (typeof v === 'string' && !isNaN(+new Date(v)) ? v : null);
+
+/** Bersihkan data dari penyimpanan: buang entri rusak, lengkapi field yang hilang. */
+function sanitize(raw: unknown): { tasks: Task[]; dropped: number } | null {
+  if (!Array.isArray(raw)) return null;
+  const tasks: Task[] = [];
+  const ids = new Set<string>();
+  for (const x of raw as any[]) {
+    if (!x || typeof x !== 'object' || typeof x.title !== 'string' || !x.title.trim()) continue;
+    let id = typeof x.id === 'string' && x.id ? x.id : `r${Math.random().toString(36).slice(2, 10)}`;
+    if (ids.has(id)) id = `${id}-${Math.random().toString(36).slice(2, 6)}`;
+    ids.add(id);
+    const status = STATUSES.includes(x.status) ? x.status : 'Belum Mulai';
+    const p = Number(x.progress);
+    const progress = status === 'Selesai' ? 100 : Math.min(100, Math.max(0, isNaN(p) ? 0 : Math.round(p)));
+    tasks.push({
+      id, title: x.title, course: typeof x.course === 'string' ? x.course : '', deadline: isoOrNull(x.deadline),
+      priority: PRIORITIES.includes(x.priority) ? x.priority : 'MEDIUM', status, progress,
+      notes: typeof x.notes === 'string' ? x.notes : '', createdAt: isoOrNull(x.createdAt) ?? new Date().toISOString(),
+      notifId: typeof x.notifId === 'string' ? x.notifId : undefined,
+    });
+  }
+  return { tasks, dropped: raw.length - tasks.length };
+}
+
 const mk = (i: number, title: string, course: string, days: number, priority: Priority, progress: number): Task => ({
   id: `seed${i}`, title, course, deadline: addDays(days).toISOString(), priority,
   status: progress === 0 ? 'Belum Mulai' : 'Sedang Dikerjakan', progress, notes: '', createdAt: new Date().toISOString(),
@@ -92,17 +119,28 @@ export function TaskProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     (async () => {
+      let raw: string | null = null;
       try {
-        const raw = await AsyncStorage.getItem(KEY);
-        const data = raw ? (JSON.parse(raw) as Task[]) : seed();
+        raw = await AsyncStorage.getItem(KEY);
+        let data: Task[];
+        if (raw == null) {
+          data = seed();
+          await AsyncStorage.setItem(KEY, JSON.stringify(data));
+        } else {
+          const clean = sanitize(JSON.parse(raw));
+          if (!clean) throw new Error('format');
+          data = clean.tasks;
+          if (clean.dropped > 0) toast.show(`${clean.dropped} data tugas yang rusak dilewati.`, 'info');
+        }
         ref.current = data;
         setTasks(data);
-        if (!raw) await AsyncStorage.setItem(KEY, JSON.stringify(data));
       } catch {
+        // Data tidak terbaca: simpan salinan mentahnya agar tidak hilang, lalu tampilkan data contoh.
+        if (raw) AsyncStorage.setItem(`${KEY}.backup`, raw).catch(() => {});
         const data = seed();
         ref.current = data;
         setTasks(data);
-        toast.show('Data tersimpan tidak dapat dibaca. Menampilkan data contoh.', 'error');
+        toast.show('Data tersimpan tidak dapat dibaca. Menampilkan data contoh; salinan data lama disimpan sebagai cadangan.', 'error');
       }
       setLoading(false);
     })();
@@ -119,7 +157,7 @@ export function TaskProvider({ children }: { children: React.ReactNode }) {
 
   const addTask: Store['addTask'] = async (d) => {
     const progress = d.status === 'Selesai' ? 100 : d.status === 'Sedang Dikerjakan' ? 25 : 0;
-    const t: Task = { ...d, id: Date.now().toString(), createdAt: new Date().toISOString(), progress };
+    const t: Task = { ...d, id: `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`, createdAt: new Date().toISOString(), progress };
     const ok = await commit([t, ...ref.current]);
     if (ok) { toast.show(`Tugas "${t.title}" berhasil ditambahkan.`); resched(t.id, undefined, true); }
     return ok;

@@ -8,7 +8,13 @@ import { COURSES, T, useTheme } from '../../theme';
 import { Priority, Status } from '../../types';
 import { presetDate } from '../../utils/date';
 
-export default function TaskForm() {
+export default function TaskFormScreen() {
+  const { loading } = useTasks();
+  // Tunggu data dimuat agar form edit terisi benar saat halaman di-refresh.
+  return loading ? null : <TaskForm />;
+}
+
+function TaskForm() {
   const { id } = useLocalSearchParams<{ id?: string }>();
   const { tasks, addTask, updateTask } = useTasks();
   const { c } = useTheme();

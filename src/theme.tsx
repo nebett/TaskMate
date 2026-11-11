@@ -1,5 +1,5 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
-import { useColorScheme } from 'react-native';
+import { View, useColorScheme } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Priority, Status } from './types';
 
@@ -64,12 +64,17 @@ const KEY = 'taskmate.theme.v1';
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const system = useColorScheme();
   const [mode, setModeState] = useState<ThemeMode>('system');
+  const [ready, setReady] = useState(false);
   useEffect(() => {
-    AsyncStorage.getItem(KEY).then((v) => { if (v === 'light' || v === 'dark' || v === 'system') setModeState(v); }).catch(() => {});
+    AsyncStorage.getItem(KEY)
+      .then((v) => { if (v === 'light' || v === 'dark' || v === 'system') setModeState(v); })
+      .catch(() => {})
+      .finally(() => setReady(true));
   }, []);
   const setMode = useCallback((m: ThemeMode) => { setModeState(m); AsyncStorage.setItem(KEY, m).catch(() => {}); }, []);
   const isDark = mode === 'dark' || (mode === 'system' && system === 'dark');
   const value = useMemo(() => ({ c: isDark ? dark : light, isDark, mode, setMode }), [isDark, mode, setMode]);
+  if (!ready) return <View style={{ flex: 1, backgroundColor: (system === 'dark' ? dark : light).bg }} />;
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }
 

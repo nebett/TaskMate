@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { ActivityIndicator, Modal, Pressable, ScrollView, StyleProp, Text, TextInput, TextInputProps, View, ViewStyle } from 'react-native';
+import { ActivityIndicator, Modal, Pressable, ScrollView, StyleProp, Text, TextInput, TextInputProps, TextStyle, View, ViewStyle } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MAX_W, useLayout } from '../hooks/useLayout';
@@ -241,7 +241,7 @@ export function useInputStyle(error?: boolean, multiline?: boolean) {
   const style = [{
     minHeight: multiline ? 104 : 48, backgroundColor: c.surface, color: c.text, borderRadius: R.md, borderWidth: 1,
     borderColor: error ? c.danger : focus ? c.primaryText : c.border, paddingHorizontal: 14, paddingVertical: 12, fontSize: 15,
-  } as const, focus ? ({ outlineWidth: 2, outlineColor: c.primaryText, outlineStyle: 'solid' } as ViewStyle) : null];
+  } as const, focus ? ({ outlineWidth: 2, outlineColor: c.primaryText, outlineStyle: 'solid' } as TextStyle) : null];
   return { style, onFocus: () => setFocus(true), onBlur: () => setFocus(false), placeholderTextColor: c.faint } as const;
 }
 
